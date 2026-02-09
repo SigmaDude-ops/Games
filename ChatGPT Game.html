@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Mini Mario-Style Game</title>
+  <style>
+    body {
+      background: linear-gradient(#5c94fc, #d0f4ff);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+      font-family: 'Trebuchet MS', sans-serif;
+    }
+    canvas {
+      border: 6px solid #222;
+      background: #87ceeb;
+      image-rendering: pixelated;
+    }
+    #hint {
+      position: absolute;
+      bottom: 20px;
+      background: rgba(0,0,0,0.6);
+      color: white;
+      padding: 8px 14px;
+      border-radius: 12px;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game" width="640" height="360"></canvas>
+  <div id="hint">⬅️ ➡️ Move | ⬆️ Jump | Collect ⭐ | Avoid 👾</div>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+
+    const gravity = 0.6;
+    const friction = 0.8;
+
+    const player = {
+      x: 50, y: 0, w: 28, h: 28,
+      dx: 0, dy: 0, onGround: false,
+      canDouble: false
+    };
+
+    const ground = canvas.height - 40;
+
+    let level = 1;
+    let score = 0;
+    let coins = 0;
+    let lives = 3;
+
+    let stars = [];
+    let enemy = {};
+    let platforms = [];
+    let particles = [];
+
+    const keys = {};
+    document.addEventListener("keydown", e => keys[e.key] = true);
+    document.addEventListener("keyup", e => keys[e.key] = false);
+
+    function resetPlayer() {
+      player.x = 50; player.y = 0; player.dx = 0; player.dy = 0;
+      player.canDouble = false;
+    }
+
+    function loadLevel(lvl) {
+      level = lvl; score = 0; coins = 0;
+      resetPlayer();
+
+      stars = [
+        { x: 200, y: ground - 20, r: 8, taken: false },
+        { x: 380, y: ground - 80, r: 8, taken: false },
+        { x: 520, y: ground - 20, r: 8, taken: false }
+      ];
+
+      platforms = [
+        { x: 140, y: ground - 70, w: 90, h: 12 },
+        { x: 320, y: ground - 120, w: 90, h: 12 },
+        { x: 460, y: ground - 70, w: 90, h: 12 }
+      ];
+
+      enemy = {
+        x: 300, y: ground - 26, w: 26, h: 26,
+        dx: 1.5, dy: 0, dir: 1,
+        jumpCooldown: 0, alive: true, stun: 0
+      };
+    }
+
+    loadLevel(1);
+
+    function rectCollide(a, b) {
+      return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+
+    function spawnParticles(x, y, n=10) {
+      for (let i=0;i<n;i++) particles.push({x,y,dx:(Math.random()-0.5)*4,dy:(Math.random()-1.5)*4,life:30});
+    }
+
+    function updateEnemy() {
+      if (!enemy.alive) {
+        enemy.stun--;
+        if (enemy.stun <= 0) { enemy.alive = true; enemy.x = 300; enemy.y = ground - enemy.h; }
+        return;
+      }
+
+      if (level === 1) {
+        enemy.x += enemy.dir * 1.5;
+        if (enemy.x < 200 || enemy.x > 420) enemy.dir *= -1;
+      }
+
+      if (level === 2) {
+        enemy.x += enemy.dir * 1.2;
+        if (enemy.x < 180 || enemy.x > 460) enemy.dir *= -1;
+        if (enemy.jumpCooldown <= 0 && Math.random() < 0.02) {
+          enemy.dy = -10; enemy.jumpCooldown = 60;
+        }
+      }
+
+      if (level === 3) {
+        enemy.dx = player.x < enemy.x ? -1.9 : 1.9;
+        enemy.x += enemy.dx;
+        if (player.y + player.h < enemy.y && enemy.jumpCooldown <= 0) {
+          enemy.dy = -11; enemy.jumpCooldown = 50;
+        }
+      }
+
+      enemy.dy += gravity; enemy.y += enemy.dy;
+      if (enemy.y + enemy.h > ground) { enemy.y = ground - enemy.h; enemy.dy = 0; }
+      if (enemy.jumpCooldown > 0) enemy.jumpCooldown--;
+    }
+
+    function update() {
+      if (keys["ArrowRight"]) player.dx += 0.8;
+      if (keys["ArrowLeft"]) player.dx -= 0.8;
+      if (keys["ArrowUp"]) {
+        if (player.onGround) { player.dy = -12; player.onGround = false; player.canDouble = true; }
+        else if (player.canDouble) { player.dy = -11; player.canDouble = false; spawnParticles(player.x, player.y, 6); }
+        keys["ArrowUp"] = false;
+      }
+
+      player.dx *= friction; player.dy += gravity;
+      player.x += player.dx; player.y += player.dy;
+
+      player.onGround = false;
+
+      if (player.y + player.h > ground) {
+        player.y = ground - player.h; player.dy = 0; player.onGround = true;
+      }
+
+      platforms.forEach(p => {
+        if (rectCollide(player, p) && player.dy > 0) {
+          player.y = p.y - player.h; player.dy = 0; player.onGround = true;
+        }
+      });
+
+      if (player.x > canvas.width) player.x = -player.w;
+      if (player.x + player.w < 0) player.x = canvas.width;
+
+      updateEnemy();
+
+      if (enemy.alive && rectCollide(player, enemy)) {
+        if (player.dy > 0) {
+          enemy.alive = false; enemy.stun = 90; player.dy = -10; coins += 5; spawnParticles(enemy.x, enemy.y, 14);
+        } else {
+          lives--; spawnParticles(player.x, player.y, 14); resetPlayer();
+          if (lives <= 0) { lives = 3; loadLevel(1); }
+        }
+      }
+
+      stars.forEach(s => {
+        if (!s.taken && Math.hypot(player.x - s.x, player.y - s.y) < 25) {
+          s.taken = true; score++; coins++; spawnParticles(s.x, s.y, 10);
+        }
+      });
+
+      particles.forEach(p => { p.x += p.dx; p.y += p.dy; p.dy += 0.3; p.life--; });
+      particles = particles.filter(p => p.life > 0);
+
+      if (score === 3) { if (level < 3) loadLevel(level + 1); }
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle = "#4caf50"; ctx.fillRect(0, ground, canvas.width, 40);
+
+      ctx.fillStyle = "#795548";
+      platforms.forEach(p => ctx.fillRect(p.x, p.y, p.w, p.h));
+
+      ctx.fillStyle = "#e53935"; ctx.fillRect(player.x, player.y, player.w, player.h);
+
+      if (enemy.alive) {
+        ctx.fillStyle = level === 3 ? "#ff1744" : "#6a1b9a";
+        ctx.fillRect(enemy.x, enemy.y, enemy.w, enemy.h);
+      }
+
+      ctx.fillStyle = "gold";
+      stars.forEach(s => { if (!s.taken) { ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI*2); ctx.fill(); } });
+
+      ctx.fillStyle = "#ffeb3b";
+      particles.forEach(p => ctx.fillRect(p.x, p.y, 3, 3));
+
+      ctx.fillStyle = "white"; ctx.font = "16px Arial";
+      ctx.fillText(`Level ${level}  ⭐ ${score}/3  🪙 ${coins}  ❤️ ${lives}`, 10, 22);
+
+      if (level === 3 && score === 3) {
+        ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillRect(0,0,canvas.width,canvas.height);
+        ctx.fillStyle = "#fff"; ctx.font = "34px Arial"; ctx.fillText("YOU BEAT ALL LEVELS!", 150, 190);
+      }
+    }
+
+    function loop() { update(); draw(); requestAnimationFrame(loop); }
+    loop();
+  </script>
+</body>
+</html>
